@@ -326,8 +326,10 @@ Ngoài các lỗi riêng ở trên, mọi route trừ `/health` còn có thể t
 
 **Route lạ và sai method cũng trả lỗi JSON:**
 
-- **Route dự phòng cho từng path:** hàm `route(mux, path, map[method]http.Handler)` đăng ký từng cặp `"METHOD path"`, rồi đăng ký thêm chính `path` đó không kèm method. Route không kèm method trả 405 `{"error":"method not allowed","code":405}` và header `Allow`. ServeMux luôn ưu tiên route có method vì cụ thể hơn.
-- **Route bắt mọi thứ còn lại:** `/` trả 404 `{"error":"route not found","code":404}`.
+- **Không đăng ký route dự phòng riêng cho từng path.** Nếu làm vậy, ServeMux sẽ panic khi khởi động. Ví dụ `/employees/search` (không kèm method) và `GET /employees/{id}` cùng khớp được một số request, nhưng không pattern nào cụ thể hơn pattern nào, nên mux coi là xung đột.
+- **Dùng một route `/` duy nhất để bắt mọi thứ còn lại.** Handler này nhân bản request, đổi method lần lượt thành `GET`, `POST`, `PUT`, `DELETE`, rồi hỏi `mux.Handler(clone)` xem với method đó thì có route nào khớp (pattern khác `/`) không.
+  - Có ít nhất một method khớp → trả 405 `{"error":"method not allowed","code":405}`, kèm header `Allow` liệt kê các method đó (sắp xếp theo bảng chữ cái, ngăn bằng `, `).
+  - Không có method nào khớp → trả 404 `{"error":"route not found","code":404}`.
 
 ### 8.2 Tham số
 
