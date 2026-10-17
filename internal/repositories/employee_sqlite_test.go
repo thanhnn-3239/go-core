@@ -157,3 +157,27 @@ func TestEmployeeExpiredContext(t *testing.T) {
 	_, err := emps.GetByID(ctx, 1)
 	testutil.AssertAppError(t, err, utils.KindTimeout, "request timed out")
 }
+
+func TestEmployeeUpdatePartial(t *testing.T) {
+	emps, d := newEmpRepo(t)
+	e := seedEmployee(t, emps, d, "An", "Dev")
+	ctx := context.Background()
+	salary := int64(3000)
+	got, err := emps.Update(ctx, e.ID, models.UpdateEmployeeInput{Salary: &salary})
+	if err != nil || got.Salary != 3000 || got.Name != "An" || got.Position != "Dev" || got.UpdatedAt.Before(e.UpdatedAt) {
+		t.Fatalf("%+v %v", got, err)
+	}
+	reread, _ := emps.GetByID(ctx, e.ID)
+	if reread.Salary != 3000 || reread.Age != e.Age {
+		t.Fatalf("persisted: %+v", reread)
+	}
+	_, err = emps.Update(ctx, 999, models.UpdateEmployeeInput{Salary: &salary})
+	testutil.AssertAppError(t, err, utils.KindNotFound, "Employee not found")
+	emps.SoftDelete(ctx, e.ID)
+	_, err = emps.Update(ctx, e.ID, models.UpdateEmployeeInput{Salary: &salary})
+	testutil.AssertAppError(t, err, utils.KindNotFound, "Employee not found")
+	missing := int64(777)
+	other := seedEmployee(t, emps, d, "B", "Dev")
+	_, err = emps.Update(ctx, other.ID, models.UpdateEmployeeInput{DepartmentID: &missing})
+	testutil.AssertAppError(t, err, utils.KindBusinessRule, "department 777 does not exist")
+}

@@ -18,8 +18,8 @@ const employeeColumns = `id, name, age, position, department_id, salary, created
 // prepared once at construction. db is kept for the transactions in List
 // and Update.
 type EmployeeSQLite struct {
-	db                                                    *sql.DB
-	insert, getByID, count, list, search, softDelete, all *sql.Stmt
+	db                                                            *sql.DB
+	insert, getByID, count, list, search, softDelete, all, update *sql.Stmt
 }
 
 var _ EmployeeRepository = (*EmployeeSQLite)(nil)
@@ -43,6 +43,7 @@ func NewEmployeeSQLite(ctx context.Context, db *sql.DB) (*EmployeeSQLite, error)
 			ORDER BY id`},
 		{&r.softDelete, `UPDATE employees SET deleted_at = ?, updated_at = ? WHERE id = ? AND deleted_at IS NULL`},
 		{&r.all, `SELECT ` + employeeColumns + ` FROM employees WHERE deleted_at IS NULL ORDER BY id`},
+		{&r.update, `UPDATE employees SET name = ?, age = ?, position = ?, department_id = ?, salary = ?, updated_at = ? WHERE id = ?`},
 	}
 	for _, s := range stmts {
 		st, err := db.PrepareContext(ctx, s.query)
@@ -58,7 +59,7 @@ func NewEmployeeSQLite(ctx context.Context, db *sql.DB) (*EmployeeSQLite, error)
 // Close releases the prepared statements.
 func (r *EmployeeSQLite) Close() error {
 	var errs []error
-	for _, st := range []*sql.Stmt{r.insert, r.getByID, r.count, r.list, r.search, r.softDelete, r.all} {
+	for _, st := range []*sql.Stmt{r.insert, r.getByID, r.count, r.list, r.search, r.softDelete, r.all, r.update} {
 		if st != nil {
 			errs = append(errs, st.Close())
 		}
@@ -167,9 +168,45 @@ func (r *EmployeeSQLite) Search(ctx context.Context, keyword string) ([]models.E
 	return collectEmployees(rows)
 }
 
-// Update is implemented in a later task.
+// Update applies the non-nil fields of in to the employee inside one
+// transaction: read the live row, overwrite the fields, write the full row
+// with a new updated_at, commit.
 func (r *EmployeeSQLite) Update(ctx context.Context, id int64, in models.UpdateEmployeeInput) (*models.Employee, error) {
-	return nil, utils.Internal(errors.New("not implemented"))
+	tx, err := r.db.BeginTx(ctx, nil)
+	if err != nil {
+		return nil, translateError(err, errMsgs{})
+	}
+	defer tx.Rollback()
+
+	e, err := scanEmployee(tx.StmtContext(ctx, r.getByID).QueryRowContext(ctx, id))
+	if err != nil {
+		return nil, translateError(err, errMsgs{notFound: MsgEmployeeNotFound})
+	}
+	if in.Name != nil {
+		e.Name = *in.Name
+	}
+	if in.Age != nil {
+		e.Age = *in.Age
+	}
+	if in.Position != nil {
+		e.Position = *in.Position
+	}
+	if in.DepartmentID != nil {
+		e.DepartmentID = *in.DepartmentID
+	}
+	if in.Salary != nil {
+		e.Salary = *in.Salary
+	}
+	e.UpdatedAt = time.Now().UTC()
+	_, err = tx.StmtContext(ctx, r.update).ExecContext(ctx,
+		e.Name, e.Age, e.Position, e.DepartmentID, e.Salary, formatTime(e.UpdatedAt), id)
+	if err != nil {
+		return nil, translateError(err, errMsgs{foreignKey: MsgDepartmentMissing(e.DepartmentID)})
+	}
+	if err := tx.Commit(); err != nil {
+		return nil, translateError(err, errMsgs{})
+	}
+	return &e, nil
 }
 
 func (r *EmployeeSQLite) SoftDelete(ctx context.Context, id int64) error {
