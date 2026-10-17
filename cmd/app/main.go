@@ -125,6 +125,8 @@ func run(ctx context.Context, cfg config, logger *slog.Logger) error {
 
 func main() {
 	logger := slog.New(slog.NewTextHandler(os.Stderr, nil))
+	// utils.WriteError logs 5xx causes through the default logger.
+	slog.SetDefault(logger)
 	cfg, err := loadConfig(os.Getenv)
 	if err != nil {
 		logger.Error("invalid configuration", "error", err)
