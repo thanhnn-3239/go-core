@@ -17,6 +17,8 @@ type DepartmentSQLite struct {
 	insert, list, exists, withEmployees *sql.Stmt
 }
 
+var _ DepartmentRepository = (*DepartmentSQLite)(nil)
+
 func NewDepartmentSQLite(ctx context.Context, db *sql.DB) (*DepartmentSQLite, error) {
 	r := &DepartmentSQLite{}
 	stmts := []struct {
