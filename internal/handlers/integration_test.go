@@ -98,11 +98,17 @@ func TestFullFlow(t *testing.T) {
 	if code, _ = call("PUT", "/employees/1", `{"position":"Lead"}`, true); code != 200 {
 		t.Fatal(code)
 	}
-	if code, body = call("GET", "/employees/search?keyword=lead", "", true); !strings.Contains(body, `"totalCount":1`) {
+	if code, body = call("GET", "/employees/search?keyword=lead", "", true); code != 200 || !strings.Contains(body, `"totalCount":1`) {
 		t.Fatal(code, body)
 	}
 	if code, body = call("GET", "/departments/1/employees", "", true); code != 200 || !strings.Contains(body, "Nguyễn Văn Ấn") {
 		t.Fatal(body)
+	}
+	if code, body = call("POST", "/departments", `{"name":"engineering"}`, true); code != 409 {
+		t.Fatal(code, body)
+	}
+	if code, body = call("POST", "/employees", `{"name":"Ghost","age":30,"position":"Dev","departmentId":999,"salary":1000}`, true); code != 422 {
+		t.Fatal(code, body)
 	}
 	if code, body = call("POST", "/employees/export", "", true); code != 200 || !strings.Contains(body, `"count":1`) {
 		t.Fatal(body)
