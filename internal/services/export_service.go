@@ -5,6 +5,7 @@ import (
 	"encoding/csv"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"os"
 	"path/filepath"
@@ -44,7 +45,8 @@ func NewExportService(repo repositories.EmployeeRepository, dir string) *ExportS
 
 // Export loads all employees once, then writes employees.json and
 // employees.csv in two goroutines. A ListAll error is returned unchanged;
-// writer failures are joined into an Internal error.
+// writer failures are joined into an Internal error (Timeout when the
+// deadline was exceeded).
 func (s *ExportService) Export(ctx context.Context) (ExportResult, error) {
 	s.runMu.Lock()
 	defer s.runMu.Unlock()
@@ -87,7 +89,11 @@ func (s *ExportService) Export(ctx context.Context) (ExportResult, error) {
 	wg.Wait()
 
 	if len(errs) > 0 {
-		return ExportResult{}, utils.Internal(errors.Join(errs...))
+		joined := errors.Join(errs...)
+		if errors.Is(joined, context.DeadlineExceeded) {
+			return ExportResult{}, utils.Timeout(joined)
+		}
+		return ExportResult{}, utils.Internal(joined)
 	}
 	return res, nil
 }
@@ -115,17 +121,40 @@ func writeAtomic(path string, fill func(w io.Writer) error) (err error) {
 	return os.Rename(tmp, path)
 }
 
+// writeJSONFile writes the employees as an indented JSON array one element at
+// a time, so ctx can be checked every ctxCheckEvery rows.
 func writeJSONFile(ctx context.Context, path string, emps []models.Employee) error {
 	return writeAtomic(path, func(w io.Writer) error {
 		if err := ctx.Err(); err != nil {
 			return err
 		}
-		if emps == nil {
-			emps = []models.Employee{}
+		if len(emps) == 0 {
+			_, err := io.WriteString(w, "[]\n")
+			return err
 		}
-		enc := json.NewEncoder(w)
-		enc.SetIndent("", "  ")
-		return enc.Encode(emps)
+		if _, err := io.WriteString(w, "[\n"); err != nil {
+			return err
+		}
+		for i, e := range emps {
+			if i%ctxCheckEvery == 0 {
+				if err := ctx.Err(); err != nil {
+					return err
+				}
+			}
+			b, err := json.MarshalIndent(e, "  ", "  ")
+			if err != nil {
+				return err
+			}
+			sep := ",\n"
+			if i == len(emps)-1 {
+				sep = "\n"
+			}
+			if _, err := fmt.Fprintf(w, "  %s%s", b, sep); err != nil {
+				return err
+			}
+		}
+		_, err := io.WriteString(w, "]\n")
+		return err
 	})
 }
 
