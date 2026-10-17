@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"path/filepath"
+	"sync"
 	"testing"
 	"time"
 )
@@ -56,4 +57,33 @@ func insertEmployeeRow(t *testing.T, db *sql.DB, deptID int64, name string, dele
 		t.Fatalf("LastInsertId: %v", err)
 	}
 	return id
+}
+
+// holdWriteLock opens a write transaction on its own connection and leaves it
+// uncommitted, so every other writer on the database file blocks until the
+// returned release func (also registered as cleanup) rolls it back.
+func holdWriteLock(t *testing.T, db *sql.DB) (release func()) {
+	t.Helper()
+	ctx := context.Background()
+	conn, err := db.Conn(ctx)
+	if err != nil {
+		t.Fatalf("db.Conn: %v", err)
+	}
+	if _, err := conn.ExecContext(ctx, "BEGIN IMMEDIATE"); err != nil {
+		conn.Close()
+		t.Fatalf("BEGIN IMMEDIATE: %v", err)
+	}
+	if _, err := conn.ExecContext(ctx, `INSERT INTO departments (name, created_at) VALUES ('held', 'x')`); err != nil {
+		conn.Close()
+		t.Fatalf("held insert: %v", err)
+	}
+	var once sync.Once
+	release = func() {
+		once.Do(func() {
+			conn.ExecContext(ctx, "ROLLBACK")
+			conn.Close()
+		})
+	}
+	t.Cleanup(release)
+	return release
 }

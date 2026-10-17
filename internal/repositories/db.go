@@ -48,9 +48,15 @@ func OpenSQLite(ctx context.Context, path string) (*sql.DB, error) {
 type errMsgs struct{ notFound, conflict, foreignKey string }
 
 // translateError converts a database error into an *utils.AppError (spec 7.3).
-func translateError(err error, m errMsgs) error {
+// Any error that occurs after the request deadline expired is reported as a
+// timeout: waiting for the SQLite write lock (busy_timeout) can outlast a
+// shorter deadline and then surfaces as SQLITE_BUSY rather than a context error.
+func translateError(ctx context.Context, err error, m errMsgs) error {
 	if err == nil {
 		return nil
+	}
+	if errors.Is(ctx.Err(), context.DeadlineExceeded) {
+		return utils.Timeout(errors.Join(ctx.Err(), err))
 	}
 	var se *sqlite.Error
 	switch {

@@ -61,7 +61,7 @@ func (r *DepartmentSQLite) Create(ctx context.Context, d *models.Department) err
 	now := time.Now().UTC()
 	res, err := r.insert.ExecContext(ctx, d.Name, formatTime(now))
 	if err != nil {
-		return translateError(err, errMsgs{conflict: MsgDepartmentExists(d.Name)})
+		return translateError(ctx, err, errMsgs{conflict: MsgDepartmentExists(d.Name)})
 	}
 	id, err := res.LastInsertId()
 	if err != nil {
@@ -74,7 +74,7 @@ func (r *DepartmentSQLite) Create(ctx context.Context, d *models.Department) err
 func (r *DepartmentSQLite) List(ctx context.Context) ([]models.Department, error) {
 	rows, err := r.list.QueryContext(ctx)
 	if err != nil {
-		return nil, translateError(err, errMsgs{})
+		return nil, translateError(ctx, err, errMsgs{})
 	}
 	defer rows.Close()
 	out := []models.Department{}
@@ -82,7 +82,7 @@ func (r *DepartmentSQLite) List(ctx context.Context) ([]models.Department, error
 		var d models.Department
 		var created string
 		if err := rows.Scan(&d.ID, &d.Name, &created); err != nil {
-			return nil, translateError(err, errMsgs{})
+			return nil, translateError(ctx, err, errMsgs{})
 		}
 		if d.CreatedAt, err = parseTime(created); err != nil {
 			return nil, utils.Internal(err)
@@ -90,7 +90,7 @@ func (r *DepartmentSQLite) List(ctx context.Context) ([]models.Department, error
 		out = append(out, d)
 	}
 	if err := rows.Err(); err != nil {
-		return nil, translateError(err, errMsgs{})
+		return nil, translateError(ctx, err, errMsgs{})
 	}
 	return out, nil
 }
@@ -98,7 +98,7 @@ func (r *DepartmentSQLite) List(ctx context.Context) ([]models.Department, error
 func (r *DepartmentSQLite) Exists(ctx context.Context, id int64) (bool, error) {
 	var ok bool
 	if err := r.exists.QueryRowContext(ctx, id).Scan(&ok); err != nil {
-		return false, translateError(err, errMsgs{})
+		return false, translateError(ctx, err, errMsgs{})
 	}
 	return ok, nil
 }
@@ -106,7 +106,7 @@ func (r *DepartmentSQLite) Exists(ctx context.Context, id int64) (bool, error) {
 func (r *DepartmentSQLite) GetWithEmployees(ctx context.Context, id int64) (*models.DepartmentEmployees, error) {
 	rows, err := r.withEmployees.QueryContext(ctx, id)
 	if err != nil {
-		return nil, translateError(err, errMsgs{})
+		return nil, translateError(ctx, err, errMsgs{})
 	}
 	defer rows.Close()
 
@@ -120,7 +120,7 @@ func (r *DepartmentSQLite) GetWithEmployees(ctx context.Context, id int64) (*mod
 		)
 		if err := rows.Scan(&dept.ID, &dept.Name, &dCreated,
 			&eID, &eName, &eAge, &ePosition, &eDept, &eSalary, &eCreated, &eUpdated); err != nil {
-			return nil, translateError(err, errMsgs{})
+			return nil, translateError(ctx, err, errMsgs{})
 		}
 		if out == nil {
 			if dept.CreatedAt, err = parseTime(dCreated); err != nil {
@@ -148,7 +148,7 @@ func (r *DepartmentSQLite) GetWithEmployees(ctx context.Context, id int64) (*mod
 		out.Employees = append(out.Employees, emp)
 	}
 	if err := rows.Err(); err != nil {
-		return nil, translateError(err, errMsgs{})
+		return nil, translateError(ctx, err, errMsgs{})
 	}
 	if out == nil {
 		return nil, utils.NotFound(MsgDepartmentNotFound)

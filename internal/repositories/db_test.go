@@ -29,12 +29,12 @@ func TestOpenSQLiteCreatesDirAndEnablesFK(t *testing.T) {
 
 func TestTranslateError(t *testing.T) {
 	m := errMsgs{notFound: MsgEmployeeNotFound}
-	if translateError(nil, m) != nil {
+	if translateError(context.Background(), nil, m) != nil {
 		t.Fatal("nil")
 	}
-	testutil.AssertAppError(t, translateError(sql.ErrNoRows, m), utils.KindNotFound, "Employee not found")
-	testutil.AssertAppError(t, translateError(fmt.Errorf("q: %w", context.DeadlineExceeded), m), utils.KindTimeout, "request timed out")
-	testutil.AssertAppError(t, translateError(errors.New("conn reset"), m), utils.KindInternal, "internal server error")
+	testutil.AssertAppError(t, translateError(context.Background(), sql.ErrNoRows, m), utils.KindNotFound, "Employee not found")
+	testutil.AssertAppError(t, translateError(context.Background(), fmt.Errorf("q: %w", context.DeadlineExceeded), m), utils.KindTimeout, "request timed out")
+	testutil.AssertAppError(t, translateError(context.Background(), errors.New("conn reset"), m), utils.KindInternal, "internal server error")
 }
 
 func TestTranslateErrorConstraints(t *testing.T) {
@@ -44,12 +44,12 @@ func TestTranslateErrorConstraints(t *testing.T) {
 	}
 	_, err := db.Exec(`INSERT INTO departments (name, created_at) VALUES ('dup', 'x')`)
 	m := errMsgs{conflict: MsgDepartmentExists("dup"), foreignKey: MsgDepartmentMissing(7)}
-	testutil.AssertAppError(t, translateError(err, m), utils.KindConflict, `department "dup" already exists`)
+	testutil.AssertAppError(t, translateError(context.Background(), err, m), utils.KindConflict, `department "dup" already exists`)
 
 	now := formatTime(time.Now())
 	_, err = db.Exec(`INSERT INTO employees (name, age, position, department_id, salary, created_at, updated_at)
 		VALUES ('x', 30, 'dev', 7, 1000, ?, ?)`, now, now)
-	testutil.AssertAppError(t, translateError(err, m), utils.KindBusinessRule, "department 7 does not exist")
+	testutil.AssertAppError(t, translateError(context.Background(), err, m), utils.KindBusinessRule, "department 7 does not exist")
 }
 
 func TestFormatParseTimeRoundTrip(t *testing.T) {
@@ -65,4 +65,19 @@ func TestFormatParseTimeRoundTrip(t *testing.T) {
 	if _, err := parseTime("not a time"); err == nil {
 		t.Fatal("want parse error")
 	}
+}
+
+func TestTranslateErrorAfterDeadline(t *testing.T) {
+	ctx, cancel := context.WithDeadline(context.Background(), time.Now().Add(-time.Second))
+	defer cancel()
+	// Any error once the deadline has passed (e.g. SQLITE_BUSY after waiting
+	// out busy_timeout) is a timeout.
+	testutil.AssertAppError(t, translateError(ctx, errors.New("database is locked (5) (SQLITE_BUSY)"), errMsgs{}), utils.KindTimeout, "request timed out")
+	if translateError(ctx, nil, errMsgs{}) != nil {
+		t.Fatal("nil error must stay nil")
+	}
+	// A cancelled (not expired) context does not turn errors into timeouts.
+	cctx, ccancel := context.WithCancel(context.Background())
+	ccancel()
+	testutil.AssertAppError(t, translateError(cctx, errors.New("boom"), errMsgs{}), utils.KindInternal, "internal server error")
 }

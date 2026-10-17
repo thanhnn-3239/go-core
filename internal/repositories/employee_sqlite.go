@@ -88,18 +88,18 @@ func scanEmployee(s interface{ Scan(...any) error }) (models.Employee, error) {
 }
 
 // collectEmployees drains rows into a non-nil slice and closes them.
-func collectEmployees(rows *sql.Rows) ([]models.Employee, error) {
+func collectEmployees(ctx context.Context, rows *sql.Rows) ([]models.Employee, error) {
 	defer rows.Close()
 	out := []models.Employee{}
 	for rows.Next() {
 		e, err := scanEmployee(rows)
 		if err != nil {
-			return nil, translateError(err, errMsgs{})
+			return nil, translateError(ctx, err, errMsgs{})
 		}
 		out = append(out, e)
 	}
 	if err := rows.Err(); err != nil {
-		return nil, translateError(err, errMsgs{})
+		return nil, translateError(ctx, err, errMsgs{})
 	}
 	return out, nil
 }
@@ -109,7 +109,7 @@ func (r *EmployeeSQLite) Create(ctx context.Context, e *models.Employee) error {
 	ts := formatTime(now)
 	res, err := r.insert.ExecContext(ctx, e.Name, e.Age, e.Position, e.DepartmentID, e.Salary, ts, ts)
 	if err != nil {
-		return translateError(err, errMsgs{foreignKey: MsgDepartmentMissing(e.DepartmentID)})
+		return translateError(ctx, err, errMsgs{foreignKey: MsgDepartmentMissing(e.DepartmentID)})
 	}
 	id, err := res.LastInsertId()
 	if err != nil {
@@ -122,7 +122,7 @@ func (r *EmployeeSQLite) Create(ctx context.Context, e *models.Employee) error {
 func (r *EmployeeSQLite) GetByID(ctx context.Context, id int64) (*models.Employee, error) {
 	e, err := scanEmployee(r.getByID.QueryRowContext(ctx, id))
 	if err != nil {
-		return nil, translateError(err, errMsgs{notFound: MsgEmployeeNotFound})
+		return nil, translateError(ctx, err, errMsgs{notFound: MsgEmployeeNotFound})
 	}
 	return &e, nil
 }
@@ -130,9 +130,11 @@ func (r *EmployeeSQLite) GetByID(ctx context.Context, id int64) (*models.Employe
 // List counts and fetches the page inside one transaction so totalCount
 // matches the page contents.
 func (r *EmployeeSQLite) List(ctx context.Context, f models.ListFilter) (models.EmployeePage, error) {
-	tx, err := r.db.BeginTx(ctx, nil)
+	// Read-only => plain deferred BEGIN (despite _txlock=immediate): List never
+	// queues behind writers and count + page share one snapshot.
+	tx, err := r.db.BeginTx(ctx, &sql.TxOptions{ReadOnly: true})
 	if err != nil {
-		return models.EmployeePage{}, translateError(err, errMsgs{})
+		return models.EmployeePage{}, translateError(ctx, err, errMsgs{})
 	}
 	defer tx.Rollback()
 
@@ -142,17 +144,17 @@ func (r *EmployeeSQLite) List(ctx context.Context, f models.ListFilter) (models.
 	}
 	var page models.EmployeePage
 	if err := tx.StmtContext(ctx, r.count).QueryRowContext(ctx, dept, dept).Scan(&page.TotalCount); err != nil {
-		return models.EmployeePage{}, translateError(err, errMsgs{})
+		return models.EmployeePage{}, translateError(ctx, err, errMsgs{})
 	}
 	rows, err := tx.StmtContext(ctx, r.list).QueryContext(ctx, dept, dept, f.Limit, f.Offset)
 	if err != nil {
-		return models.EmployeePage{}, translateError(err, errMsgs{})
+		return models.EmployeePage{}, translateError(ctx, err, errMsgs{})
 	}
-	if page.Employees, err = collectEmployees(rows); err != nil {
+	if page.Employees, err = collectEmployees(ctx, rows); err != nil {
 		return models.EmployeePage{}, err
 	}
 	if err := tx.Commit(); err != nil {
-		return models.EmployeePage{}, translateError(err, errMsgs{})
+		return models.EmployeePage{}, translateError(ctx, err, errMsgs{})
 	}
 	return page, nil
 }
@@ -163,9 +165,9 @@ func (r *EmployeeSQLite) Search(ctx context.Context, keyword string) ([]models.E
 	pattern := "%" + likeEscaper.Replace(keyword) + "%"
 	rows, err := r.search.QueryContext(ctx, pattern, pattern)
 	if err != nil {
-		return nil, translateError(err, errMsgs{})
+		return nil, translateError(ctx, err, errMsgs{})
 	}
-	return collectEmployees(rows)
+	return collectEmployees(ctx, rows)
 }
 
 // Update applies the non-nil fields of in to the employee inside one
@@ -174,13 +176,13 @@ func (r *EmployeeSQLite) Search(ctx context.Context, keyword string) ([]models.E
 func (r *EmployeeSQLite) Update(ctx context.Context, id int64, in models.UpdateEmployeeInput) (*models.Employee, error) {
 	tx, err := r.db.BeginTx(ctx, nil)
 	if err != nil {
-		return nil, translateError(err, errMsgs{})
+		return nil, translateError(ctx, err, errMsgs{})
 	}
 	defer tx.Rollback()
 
 	e, err := scanEmployee(tx.StmtContext(ctx, r.getByID).QueryRowContext(ctx, id))
 	if err != nil {
-		return nil, translateError(err, errMsgs{notFound: MsgEmployeeNotFound})
+		return nil, translateError(ctx, err, errMsgs{notFound: MsgEmployeeNotFound})
 	}
 	if in.Name != nil {
 		e.Name = *in.Name
@@ -201,7 +203,7 @@ func (r *EmployeeSQLite) Update(ctx context.Context, id int64, in models.UpdateE
 	res, err := tx.StmtContext(ctx, r.update).ExecContext(ctx,
 		e.Name, e.Age, e.Position, e.DepartmentID, e.Salary, formatTime(e.UpdatedAt), id)
 	if err != nil {
-		return nil, translateError(err, errMsgs{foreignKey: MsgDepartmentMissing(e.DepartmentID)})
+		return nil, translateError(ctx, err, errMsgs{foreignKey: MsgDepartmentMissing(e.DepartmentID)})
 	}
 	// Defense in depth: the row was live at SELECT time and the tx holds the
 	// write lock, so this only trips if the guard in the statement stops matching.
@@ -211,7 +213,7 @@ func (r *EmployeeSQLite) Update(ctx context.Context, id int64, in models.UpdateE
 		return nil, utils.NotFound(MsgEmployeeNotFound)
 	}
 	if err := tx.Commit(); err != nil {
-		return nil, translateError(err, errMsgs{})
+		return nil, translateError(ctx, err, errMsgs{})
 	}
 	return &e, nil
 }
@@ -220,7 +222,7 @@ func (r *EmployeeSQLite) SoftDelete(ctx context.Context, id int64) error {
 	ts := formatTime(time.Now())
 	res, err := r.softDelete.ExecContext(ctx, ts, ts, id)
 	if err != nil {
-		return translateError(err, errMsgs{})
+		return translateError(ctx, err, errMsgs{})
 	}
 	n, err := res.RowsAffected()
 	if err != nil {
@@ -235,7 +237,7 @@ func (r *EmployeeSQLite) SoftDelete(ctx context.Context, id int64) error {
 func (r *EmployeeSQLite) ListAll(ctx context.Context) ([]models.Employee, error) {
 	rows, err := r.all.QueryContext(ctx)
 	if err != nil {
-		return nil, translateError(err, errMsgs{})
+		return nil, translateError(ctx, err, errMsgs{})
 	}
-	return collectEmployees(rows)
+	return collectEmployees(ctx, rows)
 }

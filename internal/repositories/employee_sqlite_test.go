@@ -219,3 +219,33 @@ func TestEmployeeUpdateConcurrent(t *testing.T) {
 		t.Errorf("concurrent update failed: %v", err)
 	}
 }
+
+func TestUpdateTimesOutWhileWriteLockHeld(t *testing.T) {
+	emps, deptID := newEmpRepo(t)
+	e := seedEmployee(t, emps, deptID, "Ann", "Dev")
+	holdWriteLock(t, emps.db)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 300*time.Millisecond)
+	defer cancel()
+	name := "Changed"
+	_, err := emps.Update(ctx, e.ID, models.UpdateEmployeeInput{Name: &name})
+	testutil.AssertAppError(t, err, utils.KindTimeout, "request timed out")
+}
+
+func TestListDoesNotWaitForWriteLock(t *testing.T) {
+	emps, deptID := newEmpRepo(t)
+	seedEmployee(t, emps, deptID, "Ann", "Dev")
+	holdWriteLock(t, emps.db)
+
+	start := time.Now()
+	page, err := emps.List(context.Background(), models.ListFilter{Limit: 10})
+	if err != nil {
+		t.Fatalf("List: %v", err)
+	}
+	if elapsed := time.Since(start); elapsed > time.Second {
+		t.Fatalf("List took %v while a writer held the lock", elapsed)
+	}
+	if page.TotalCount != 1 || len(page.Employees) != 1 {
+		t.Fatalf("page = %+v", page)
+	}
+}
