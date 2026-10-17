@@ -237,13 +237,14 @@ CREATE INDEX IF NOT EXISTS idx_employees_department
 DSN dùng để mở DB:
 
 ```
-file:<DB_PATH>?_pragma=foreign_keys(1)&_pragma=journal_mode(WAL)&_pragma=busy_timeout(5000)
+file:<DB_PATH>?_pragma=foreign_keys(1)&_pragma=journal_mode(WAL)&_pragma=busy_timeout(5000)&_txlock=immediate
 ```
 
 - **Đặt PRAGMA trong DSN:** khi đặt ở đây, PRAGMA được áp dụng cho mọi kết nối trong pool.
 - **`foreign_keys(1)`:** SQLite mặc định tắt khoá ngoại, nên phải bật thì `REFERENCES` mới có tác dụng.
 - **WAL:** cho phép đọc song song trong lúc đang ghi.
 - **`busy_timeout(5000)`:** khi DB đang bận, lệnh ghi chờ tối đa 5s thay vì báo lỗi `database is locked` ngay.
+- **`_txlock=immediate`:** transaction ghi lấy khoá ghi ngay tại `BEGIN`, nên các lệnh cập nhật đồng thời xếp hàng chờ theo `busy_timeout` thay vì lỗi `SQLITE_BUSY_SNAPSHOT`. `List` dùng transaction chỉ đọc (`ReadOnly: true`, `BEGIN` deferred) nên không phải chờ các lệnh ghi mà vẫn dùng một snapshot duy nhất cho cả `COUNT` và trang dữ liệu.
 
 ## 7. Repository
 
@@ -522,3 +523,4 @@ func Chain(h http.Handler, mws ...Middleware) http.Handler // Chain(h, A, B) == 
 - **SQLite lệch đề.** Đề ghi PostgreSQL/MySQL. Cần hỏi giảng viên. Phương án dự phòng là viết thêm repository Postgres dùng driver `pgx` mà không phải đổi service.
 - **Race detector chưa chạy được** cho đến khi cài gcc (xem mục 11).
 - **Ghi đồng thời trên SQLite.** Tại một thời điểm chỉ có một tiến trình được ghi. `busy_timeout(5000)` giúp các lệnh ghi chờ lần lượt thay vì báo lỗi ngay. Với tải của bài thực hành thì như vậy là đủ.
+- **Chờ khoá ghi có thể vượt deadline của request.** Thời gian chờ khoá ghi SQLite có thể kéo dài tới `busy_timeout` (5s) dù deadline của request ngắn hơn. Khi đó lỗi phát sinh sau deadline được báo là 504 (Timeout) thay vì 500.
