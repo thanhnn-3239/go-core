@@ -10,12 +10,15 @@ import (
 	"go-core/internal/services"
 )
 
-// newTestRouter builds the router on top of an in-memory store.
+// newTestRouter builds the router on top of an in-memory store; exports go to
+// a per-test temp directory.
 func newTestRouter(t *testing.T) (http.Handler, *fakerepo.Store) {
 	t.Helper()
 	store := fakerepo.New()
 	dept := NewDepartmentHandler(services.NewDepartmentService(store.Departments()))
-	return NewRouter(&EmployeeHandler{}, dept, &ExportHandler{}), store
+	emp := NewEmployeeHandler(services.NewEmployeeService(store.Employees(), store.Departments()))
+	exp := NewExportHandler(services.NewExportService(store.Employees(), t.TempDir()))
+	return NewRouter(emp, dept, exp), store
 }
 
 // do sends one request through h and returns the recorded response.

@@ -8,12 +8,6 @@ import (
 	"go-core/internal/utils"
 )
 
-// EmployeeHandler and ExportHandler are filled in by the employee and export
-// tasks; they exist here so NewRouter has its final signature.
-type EmployeeHandler struct{}
-
-type ExportHandler struct{}
-
 // NewRouter registers every route and wraps the mux with the JSON 404/405
 // fallback.
 func NewRouter(emp *EmployeeHandler, dept *DepartmentHandler, exp *ExportHandler) http.Handler {
@@ -22,8 +16,14 @@ func NewRouter(emp *EmployeeHandler, dept *DepartmentHandler, exp *ExportHandler
 	mux.HandleFunc("POST /departments", utils.Handle(dept.Create))
 	mux.HandleFunc("GET /departments", utils.Handle(dept.List))
 	mux.HandleFunc("GET /departments/{id}/employees", utils.Handle(dept.Employees))
-	// Employee and export routes are added later.
-	_, _ = emp, exp
+	mux.HandleFunc("POST /employees", utils.Handle(emp.Create))
+	mux.HandleFunc("GET /employees", utils.Handle(emp.List))
+	// "/employees/search" is more specific than "/employees/{id}", so it wins.
+	mux.HandleFunc("GET /employees/search", utils.Handle(emp.Search))
+	mux.HandleFunc("GET /employees/{id}", utils.Handle(emp.Get))
+	mux.HandleFunc("PUT /employees/{id}", utils.Handle(emp.Update))
+	mux.HandleFunc("DELETE /employees/{id}", utils.Handle(emp.Delete))
+	mux.HandleFunc("POST /employees/export", utils.Handle(exp.Export))
 	mux.Handle("/", fallback(mux))
 	return mux
 }
