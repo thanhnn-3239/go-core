@@ -73,3 +73,38 @@ func TestEmployeeTimeoutFromRepo(t *testing.T) {
 		t.Fatal(rec.Code)
 	}
 }
+
+func TestEmployeeListDepartmentFilter(t *testing.T) {
+	h, store := newTestRouter(t)
+	d := &models.Department{Name: "Eng"}
+	if err := store.Departments().Create(context.Background(), d); err != nil {
+		t.Fatal(err)
+	}
+	body := fmt.Sprintf(`{"name":"Nguyen Van A","age":28,"position":"Backend Engineer","departmentId":%d,"salary":2000}`, d.ID)
+	if rec := do(t, h, "POST", "/employees", body); rec.Code != 201 {
+		t.Fatal(rec.Code, rec.Body)
+	}
+	rec := do(t, h, "GET", fmt.Sprintf("/employees?departmentId=%d", d.ID), "")
+	if rec.Code != 200 || !strings.Contains(rec.Body.String(), `"totalCount":1`) {
+		t.Fatal(rec.Code, rec.Body)
+	}
+	rec = do(t, h, "GET", "/employees?departmentId=x", "")
+	if rec.Code != 400 || !strings.Contains(rec.Body.String(), `invalid departmentId: \"x\"`) {
+		t.Fatal(rec.Code, rec.Body)
+	}
+	rec = do(t, h, "GET", "/employees?departmentId=99", "")
+	if rec.Code != 200 || !strings.Contains(rec.Body.String(), `"totalCount":0`) ||
+		!strings.Contains(rec.Body.String(), `"employees":[]`) {
+		t.Fatal(rec.Code, rec.Body)
+	}
+}
+
+func TestEmployeeMissingID(t *testing.T) {
+	h, _ := newTestRouter(t)
+	if rec := do(t, h, "PUT", "/employees/99", `{"salary":3000}`); rec.Code != 404 {
+		t.Fatal(rec.Code, rec.Body)
+	}
+	if rec := do(t, h, "DELETE", "/employees/99", ""); rec.Code != 404 {
+		t.Fatal(rec.Code, rec.Body)
+	}
+}

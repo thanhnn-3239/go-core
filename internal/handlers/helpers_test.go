@@ -1,8 +1,11 @@
 package handlers
 
 import (
+	"io"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"strings"
 	"testing"
 
@@ -28,4 +31,10 @@ func do(t *testing.T, h http.Handler, method, path, body string) *httptest.Respo
 	rec := httptest.NewRecorder()
 	h.ServeHTTP(rec, req)
 	return rec
+}
+
+func TestMain(m *testing.M) {
+	// WriteError logs 5xx errors; keep test output clean.
+	slog.SetDefault(slog.New(slog.NewTextHandler(io.Discard, nil)))
+	os.Exit(m.Run())
 }
