@@ -21,12 +21,14 @@ var schema string
 
 // OpenSQLite opens (creating if needed) the SQLite database at path, applies
 // the schema and verifies the connection. The PRAGMAs are set in the DSN so
-// they apply to every connection in the pool.
+// they apply to every connection in the pool. _txlock=immediate makes every
+// transaction take the write lock at BEGIN, so read-then-write transactions
+// queue under busy_timeout instead of failing with SQLITE_BUSY_SNAPSHOT.
 func OpenSQLite(ctx context.Context, path string) (*sql.DB, error) {
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return nil, fmt.Errorf("create db dir: %w", err)
 	}
-	dsn := "file:" + path + "?_pragma=foreign_keys(1)&_pragma=journal_mode(WAL)&_pragma=busy_timeout(5000)"
+	dsn := "file:" + path + "?_pragma=foreign_keys(1)&_pragma=journal_mode(WAL)&_pragma=busy_timeout(5000)&_txlock=immediate"
 	db, err := sql.Open("sqlite", dsn)
 	if err != nil {
 		return nil, fmt.Errorf("open sqlite: %w", err)

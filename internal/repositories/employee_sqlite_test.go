@@ -3,6 +3,7 @@ package repositories
 import (
 	"context"
 	"fmt"
+	"sync"
 	"testing"
 	"time"
 
@@ -167,7 +168,10 @@ func TestEmployeeUpdatePartial(t *testing.T) {
 	if err != nil || got.Salary != 3000 || got.Name != "An" || got.Position != "Dev" || got.UpdatedAt.Before(e.UpdatedAt) {
 		t.Fatalf("%+v %v", got, err)
 	}
-	reread, _ := emps.GetByID(ctx, e.ID)
+	reread, err := emps.GetByID(ctx, e.ID)
+	if err != nil {
+		t.Fatalf("re-read: %v", err)
+	}
 	if reread.Salary != 3000 || reread.Age != e.Age {
 		t.Fatalf("persisted: %+v", reread)
 	}
@@ -180,4 +184,38 @@ func TestEmployeeUpdatePartial(t *testing.T) {
 	other := seedEmployee(t, emps, d, "B", "Dev")
 	_, err = emps.Update(ctx, other.ID, models.UpdateEmployeeInput{DepartmentID: &missing})
 	testutil.AssertAppError(t, err, utils.KindBusinessRule, "department 777 does not exist")
+	after, err := emps.GetByID(ctx, other.ID)
+	if err != nil || after.DepartmentID != d || after.Name != "B" || !after.UpdatedAt.Equal(other.UpdatedAt) {
+		t.Fatalf("failed update must leave row unchanged: %+v %v", after, err)
+	}
+}
+
+// Update runs SELECT then UPDATE; with deferred transactions a concurrent
+// commit in between fails with SQLITE_BUSY_SNAPSHOT. Immediate transactions
+// make concurrent updates queue behind busy_timeout instead.
+func TestEmployeeUpdateConcurrent(t *testing.T) {
+	emps, d := newEmpRepo(t)
+	e := seedEmployee(t, emps, d, "An", "Dev")
+	const n = 10
+	var (
+		wg   sync.WaitGroup
+		mu   sync.Mutex
+		errs []error
+	)
+	for i := range n {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			salary := int64(2000 + i)
+			if _, err := emps.Update(context.Background(), e.ID, models.UpdateEmployeeInput{Salary: &salary}); err != nil {
+				mu.Lock()
+				errs = append(errs, err)
+				mu.Unlock()
+			}
+		}()
+	}
+	wg.Wait()
+	for _, err := range errs {
+		t.Errorf("concurrent update failed: %v", err)
+	}
 }

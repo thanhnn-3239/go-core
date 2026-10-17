@@ -43,7 +43,7 @@ func NewEmployeeSQLite(ctx context.Context, db *sql.DB) (*EmployeeSQLite, error)
 			ORDER BY id`},
 		{&r.softDelete, `UPDATE employees SET deleted_at = ?, updated_at = ? WHERE id = ? AND deleted_at IS NULL`},
 		{&r.all, `SELECT ` + employeeColumns + ` FROM employees WHERE deleted_at IS NULL ORDER BY id`},
-		{&r.update, `UPDATE employees SET name = ?, age = ?, position = ?, department_id = ?, salary = ?, updated_at = ? WHERE id = ?`},
+		{&r.update, `UPDATE employees SET name = ?, age = ?, position = ?, department_id = ?, salary = ?, updated_at = ? WHERE id = ? AND deleted_at IS NULL`},
 	}
 	for _, s := range stmts {
 		st, err := db.PrepareContext(ctx, s.query)
@@ -198,10 +198,17 @@ func (r *EmployeeSQLite) Update(ctx context.Context, id int64, in models.UpdateE
 		e.Salary = *in.Salary
 	}
 	e.UpdatedAt = time.Now().UTC()
-	_, err = tx.StmtContext(ctx, r.update).ExecContext(ctx,
+	res, err := tx.StmtContext(ctx, r.update).ExecContext(ctx,
 		e.Name, e.Age, e.Position, e.DepartmentID, e.Salary, formatTime(e.UpdatedAt), id)
 	if err != nil {
 		return nil, translateError(err, errMsgs{foreignKey: MsgDepartmentMissing(e.DepartmentID)})
+	}
+	// Defense in depth: the row was live at SELECT time and the tx holds the
+	// write lock, so this only trips if the guard in the statement stops matching.
+	if n, err := res.RowsAffected(); err != nil {
+		return nil, utils.Internal(err)
+	} else if n == 0 {
+		return nil, utils.NotFound(MsgEmployeeNotFound)
 	}
 	if err := tx.Commit(); err != nil {
 		return nil, translateError(err, errMsgs{})
