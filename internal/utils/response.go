@@ -4,9 +4,11 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"log/slog"
 	"net/http"
+	"reflect"
 	"strings"
 )
 
@@ -88,12 +90,39 @@ func badBody(msg string) *AppError {
 
 func bodyErrorMessage(err error) string {
 	var tooLarge *http.MaxBytesError
+	var ute *json.UnmarshalTypeError
 	switch {
 	case errors.Is(err, io.EOF):
 		return "body must not be empty"
 	case errors.As(err, &tooLarge):
 		return "body exceeds 1MB limit"
+	case errors.As(err, &ute):
+		if ute.Field == "" {
+			return "body must be a JSON object"
+		}
+		return fmt.Sprintf("field %q must be %s", ute.Field, jsonKindName(ute.Type))
 	default:
 		return strings.TrimPrefix(err.Error(), "json: ")
+	}
+}
+
+// jsonKindName describes the JSON value a Go type expects, so clients are not
+// shown Go type names.
+func jsonKindName(t reflect.Type) string {
+	switch t.Kind() {
+	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64,
+		reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64,
+		reflect.Float32, reflect.Float64:
+		return "a number"
+	case reflect.String:
+		return "a string"
+	case reflect.Bool:
+		return "a boolean"
+	case reflect.Struct, reflect.Map:
+		return "an object"
+	case reflect.Slice, reflect.Array:
+		return "an array"
+	default:
+		return "a different type"
 	}
 }

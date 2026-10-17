@@ -72,14 +72,18 @@ func TestDecodeJSON(t *testing.T) {
 			testutil.AssertAppError(t, err, KindValidation, tc.wantMsg)
 		})
 	}
-	// Sai kiểu dữ liệu: chỉ kiểm tra Kind và tiền tố của thông điệp
-	r := httptest.NewRequest("POST", "/", strings.NewReader(`{"age":"abc"}`))
-	var ae *AppError
-	if err := DecodeJSON(httptest.NewRecorder(), r, &struct {
-		Age int `json:"age"`
-	}{}); !errors.As(err, &ae) ||
-		ae.Kind != KindValidation || !strings.HasPrefix(ae.Message, "invalid request body: ") {
-		t.Fatalf("type mismatch: %v", err)
+	// Sai kiểu dữ liệu: thông điệp không lộ tên kiểu Go
+	for _, tc := range []struct{ name, body, wantMsg string }{
+		{"type mismatch", `{"age":"abc"}`, `invalid request body: field "age" must be a number`},
+		{"top-level array", `[]`, "invalid request body: body must be a JSON object"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			r := httptest.NewRequest("POST", "/", strings.NewReader(tc.body))
+			err := DecodeJSON(httptest.NewRecorder(), r, &struct {
+				Age int `json:"age"`
+			}{})
+			testutil.AssertAppError(t, err, KindValidation, tc.wantMsg)
+		})
 	}
 }
 
