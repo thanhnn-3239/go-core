@@ -78,10 +78,10 @@ func scanEmployee(s interface{ Scan(...any) error }) (models.Employee, error) {
 	}
 	var err error
 	if e.CreatedAt, err = parseTime(created); err != nil {
-		return models.Employee{}, utils.Internal(err)
+		return models.Employee{}, err
 	}
 	if e.UpdatedAt, err = parseTime(updated); err != nil {
-		return models.Employee{}, utils.Internal(err)
+		return models.Employee{}, err
 	}
 	return e, nil
 }
@@ -156,7 +156,7 @@ func (r *EmployeeSQLite) List(ctx context.Context, f models.ListFilter) (models.
 	return page, nil
 }
 
-var likeEscaper = strings.NewReplacer(`\`, `\`, `%`, `\%`, `_`, `\_`)
+var likeEscaper = strings.NewReplacer(`\`, `\\`, `%`, `\%`, `_`, `\_`)
 
 func (r *EmployeeSQLite) Search(ctx context.Context, keyword string) ([]models.Employee, error) {
 	pattern := "%" + likeEscaper.Replace(keyword) + "%"

@@ -80,7 +80,7 @@ func TestEmployeeListPagination(t *testing.T) {
 	if err != nil || page.TotalCount != 1 || page.Employees[0].Name != "S0" {
 		t.Fatalf("filter: %+v, %v", page, err)
 	}
-	page, err = emps.List(ctx, models.ListFilter{Limit: 10, Offset: 1000}) // Review Focus #5
+	page, err = emps.List(ctx, models.ListFilter{Limit: 10, Offset: 1000}) // offset past the end: total stays, page is empty but non-nil
 	if err != nil || page.TotalCount != 6 || page.Employees == nil || len(page.Employees) != 0 {
 		t.Fatalf("beyond: %+v, %v", page, err)
 	}
@@ -97,6 +97,8 @@ func TestEmployeeSearch(t *testing.T) {
 	seedEmployee(t, emps, d, "Binh", "Android Engineer")
 	seedEmployee(t, emps, d, "100% Pure", "QA")
 	seedEmployee(t, emps, d, "Chi", "Tester")
+	slash := seedEmployee(t, emps, d, `a\b`, "Ops")
+	seedEmployee(t, emps, d, "ab", "Ops")
 	ctx := context.Background()
 	got, err := emps.Search(ctx, "AN")
 	if err != nil || len(got) != 2 { // khớp name "An Nguyen" và position "Android"
@@ -109,6 +111,14 @@ func TestEmployeeSearch(t *testing.T) {
 	got, err = emps.Search(ctx, "_")
 	if err != nil || got == nil || len(got) != 0 {
 		t.Fatalf("underscore: %+v, %v", got, err)
+	}
+	got, err = emps.Search(ctx, `\`) // backslash is literal: only the row containing one
+	if err != nil || len(got) != 1 || got[0].ID != slash.ID {
+		t.Fatalf("backslash: %+v, %v", got, err)
+	}
+	got, err = emps.Search(ctx, `a\b`) // matches the backslash row, not "ab"
+	if err != nil || len(got) != 1 || got[0].ID != slash.ID {
+		t.Fatalf("a-backslash-b: %+v, %v", got, err)
 	}
 }
 
