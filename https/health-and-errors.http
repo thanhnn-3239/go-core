@@ -1,0 +1,33 @@
+# Health check, Basic Auth và lỗi định tuyến.
+# Chạy server trước:  go run ./cmd/app   (mặc định cổng 8080, DB ở data/app.db)
+# REST Client tự mã hoá "user:password" sang base64 cho header Basic.
+
+@baseUrl = http://localhost:8080
+@user = admin
+@password = admin123
+
+### Health — không cần đăng nhập → 200 {"status":"ok"}
+GET {{baseUrl}}/health
+
+### Không gửi Authorization → 401 + header WWW-Authenticate: Basic realm="ems"
+GET {{baseUrl}}/employees
+
+### Sai mật khẩu → 401 {"error":"unauthorized","code":401}
+GET {{baseUrl}}/employees
+Authorization: Basic {{user}}:wrong-password
+
+### Sai kiểu header (Bearer) → 401
+GET {{baseUrl}}/employees
+Authorization: Bearer abc
+
+### Route không tồn tại → 404 {"error":"route not found","code":404}
+GET {{baseUrl}}/nope
+Authorization: Basic {{user}}:{{password}}
+
+### Sai method → 405, header Allow: GET, POST
+PATCH {{baseUrl}}/departments
+Authorization: Basic {{user}}:{{password}}
+
+### Sai method trên path có {id} → 405, header Allow: DELETE, GET, PUT
+PATCH {{baseUrl}}/employees/1
+Authorization: Basic {{user}}:{{password}}

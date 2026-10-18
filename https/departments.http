@@ -1,0 +1,77 @@
+# API phòng ban. Chạy lần lượt từ trên xuống: các request sau dùng id của "createDepartment".
+# Tên phòng ban có thêm {{$timestamp}} để chạy lại nhiều lần không bị 409.
+
+@baseUrl = http://localhost:8080
+@user = admin
+@password = admin123
+
+### Tạo phòng ban → 201
+# @name createDepartment
+POST {{baseUrl}}/departments
+Authorization: Basic {{user}}:{{password}}
+Content-Type: application/json
+
+{
+  "name": "Engineering {{$timestamp}}"
+}
+
+### Trùng tên vừa tạo (có thêm khoảng trắng hai đầu) → 409 department "..." already exists
+POST {{baseUrl}}/departments
+Authorization: Basic {{user}}:{{password}}
+Content-Type: application/json
+
+{
+  "name": "  {{createDepartment.response.body.$.name}}  "
+}
+
+### Tạo "QA Team" → 201 ở lần chạy đầu tiên, 409 ở các lần sau
+POST {{baseUrl}}/departments
+Authorization: Basic {{user}}:{{password}}
+Content-Type: application/json
+
+{
+  "name": "QA Team"
+}
+
+### "qa team" trùng "QA Team" (không phân biệt hoa thường) → 409
+POST {{baseUrl}}/departments
+Authorization: Basic {{user}}:{{password}}
+Content-Type: application/json
+
+{
+  "name": "qa team"
+}
+
+### Tên rỗng → 400 validation failed + details [{"field":"name","message":"is required"}]
+POST {{baseUrl}}/departments
+Authorization: Basic {{user}}:{{password}}
+Content-Type: application/json
+
+{
+  "name": "   "
+}
+
+### Trường lạ → 400 invalid request body: unknown field "title"
+POST {{baseUrl}}/departments
+Authorization: Basic {{user}}:{{password}}
+Content-Type: application/json
+
+{
+  "title": "Engineering"
+}
+
+### Danh sách phòng ban → 200 {"departments":[...]}
+GET {{baseUrl}}/departments
+Authorization: Basic {{user}}:{{password}}
+
+### Nhân viên của phòng ban vừa tạo (LEFT JOIN) → 200, "employees":[] khi chưa có ai
+GET {{baseUrl}}/departments/{{createDepartment.response.body.$.id}}/employees
+Authorization: Basic {{user}}:{{password}}
+
+### Phòng ban không tồn tại → 404 {"error":"Department not found","code":404}
+GET {{baseUrl}}/departments/999999/employees
+Authorization: Basic {{user}}:{{password}}
+
+### Id không hợp lệ → 400 invalid department id: "abc"
+GET {{baseUrl}}/departments/abc/employees
+Authorization: Basic {{user}}:{{password}}

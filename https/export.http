@@ -1,0 +1,15 @@
+# Export đồng thời ra JSON và CSV (2 goroutine, WaitGroup + Mutex).
+# File được ghi vào thư mục EXPORT_DIR (mặc định exports/ ở thư mục chạy server).
+
+@baseUrl = http://localhost:8080
+@user = admin
+@password = admin123
+
+### Export → 200 {"count":N,"files":{"json":"exports\\employees.json","csv":"exports\\employees.csv"}}
+POST {{baseUrl}}/employees/export
+Authorization: Basic {{user}}:{{password}}
+
+### GET thay vì POST → 400 invalid employee id: "export"
+# (khớp route GET /employees/{id} với id = "export", nên không phải 405)
+GET {{baseUrl}}/employees/export
+Authorization: Basic {{user}}:{{password}}

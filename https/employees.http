@@ -1,0 +1,202 @@
+# API nhân viên. Chạy lần lượt từ trên xuống:
+# request đầu tạo một phòng ban, request thứ hai tạo nhân viên; các request sau dùng id của chúng.
+
+@baseUrl = http://localhost:8080
+@user = admin
+@password = admin123
+@deptId = {{seedDepartment.response.body.$.id}}
+@empId = {{createEmployee.response.body.$.id}}
+
+### Chuẩn bị: tạo phòng ban → 201
+# @name seedDepartment
+POST {{baseUrl}}/departments
+Authorization: Basic {{user}}:{{password}}
+Content-Type: application/json
+
+{
+  "name": "Backend {{$timestamp}}"
+}
+
+### Tạo nhân viên (tên tiếng Việt) → 201
+# @name createEmployee
+POST {{baseUrl}}/employees
+Authorization: Basic {{user}}:{{password}}
+Content-Type: application/json
+
+{
+  "name": "Nguyễn Văn Ấn",
+  "age": 28,
+  "position": "Backend Engineer",
+  "departmentId": {{deptId}},
+  "salary": 2000
+}
+
+### Tạo thêm nhân viên thứ hai → 201
+POST {{baseUrl}}/employees
+Authorization: Basic {{user}}:{{password}}
+Content-Type: application/json
+
+{
+  "name": "Tran Thi B",
+  "age": 31,
+  "position": "QA Engineer",
+  "departmentId": {{deptId}},
+  "salary": 1800
+}
+
+### Sai nhiều trường → 400 validation failed, details theo thứ tự name, age, position, departmentId, salary
+POST {{baseUrl}}/employees
+Authorization: Basic {{user}}:{{password}}
+Content-Type: application/json
+
+{
+  "name": "",
+  "age": 0,
+  "position": "",
+  "departmentId": 0,
+  "salary": -5
+}
+
+### Trường lạ → 400 invalid request body: unknown field "agee"
+POST {{baseUrl}}/employees
+Authorization: Basic {{user}}:{{password}}
+Content-Type: application/json
+
+{
+  "agee": 28
+}
+
+### Sai kiểu dữ liệu → 400 invalid request body: field "age" must be a number
+POST {{baseUrl}}/employees
+Authorization: Basic {{user}}:{{password}}
+Content-Type: application/json
+
+{
+  "name": "X",
+  "age": "abc",
+  "position": "P",
+  "departmentId": {{deptId}},
+  "salary": 1
+}
+
+### Body rỗng → 400 invalid request body: body must not be empty
+POST {{baseUrl}}/employees
+Authorization: Basic {{user}}:{{password}}
+Content-Type: application/json
+
+### Phòng ban không tồn tại → 422 department 999999 does not exist
+POST {{baseUrl}}/employees
+Authorization: Basic {{user}}:{{password}}
+Content-Type: application/json
+
+{
+  "name": "X",
+  "age": 1,
+  "position": "P",
+  "departmentId": 999999,
+  "salary": 1
+}
+
+### Danh sách, phân trang → 200 {"totalCount":N,"employees":[...]} (tối đa 2 phần tử)
+GET {{baseUrl}}/employees?limit=2&offset=0
+Authorization: Basic {{user}}:{{password}}
+
+### Lọc theo phòng ban vừa tạo → 200, totalCount 2
+GET {{baseUrl}}/employees?departmentId={{deptId}}
+Authorization: Basic {{user}}:{{password}}
+
+### offset vượt quá tổng → 200, "employees":[]
+GET {{baseUrl}}/employees?offset=100000
+Authorization: Basic {{user}}:{{password}}
+
+### limit ngoài 1..100 → 400 limit must be between 1 and 100
+GET {{baseUrl}}/employees?limit=101
+Authorization: Basic {{user}}:{{password}}
+
+### departmentId không phải số → 400 invalid departmentId: "x"
+GET {{baseUrl}}/employees?departmentId=x
+Authorization: Basic {{user}}:{{password}}
+
+### Tìm kiếm theo name hoặc position (không phân biệt hoa thường) → 200
+GET {{baseUrl}}/employees/search?keyword=engineer
+Authorization: Basic {{user}}:{{password}}
+
+### Tìm kiếm thiếu keyword → 400 keyword is required
+GET {{baseUrl}}/employees/search
+Authorization: Basic {{user}}:{{password}}
+
+### Lấy chi tiết → 200
+GET {{baseUrl}}/employees/{{empId}}
+Authorization: Basic {{user}}:{{password}}
+
+### Id không hợp lệ → 400 invalid employee id: "abc"
+GET {{baseUrl}}/employees/abc
+Authorization: Basic {{user}}:{{password}}
+
+### Không tồn tại → 404 Employee not found
+GET {{baseUrl}}/employees/999999
+Authorization: Basic {{user}}:{{password}}
+
+### Cập nhật một trường (salary) → 200, các trường khác giữ nguyên
+PUT {{baseUrl}}/employees/{{empId}}
+Authorization: Basic {{user}}:{{password}}
+Content-Type: application/json
+
+{
+  "salary": 3000
+}
+
+### Body {} → 400 no fields to update
+PUT {{baseUrl}}/employees/{{empId}}
+Authorization: Basic {{user}}:{{password}}
+Content-Type: application/json
+
+{}
+
+### Trường null coi như không gửi → 400 no fields to update
+PUT {{baseUrl}}/employees/{{empId}}
+Authorization: Basic {{user}}:{{password}}
+Content-Type: application/json
+
+{
+  "name": null
+}
+
+### Giá trị sai → 400 validation failed, details [{"field":"age",...}]
+PUT {{baseUrl}}/employees/{{empId}}
+Authorization: Basic {{user}}:{{password}}
+Content-Type: application/json
+
+{
+  "age": -1
+}
+
+### Đổi sang phòng ban không tồn tại → 422
+PUT {{baseUrl}}/employees/{{empId}}
+Authorization: Basic {{user}}:{{password}}
+Content-Type: application/json
+
+{
+  "departmentId": 999999
+}
+
+### Cập nhật nhân viên không tồn tại → 404
+PUT {{baseUrl}}/employees/999999
+Authorization: Basic {{user}}:{{password}}
+Content-Type: application/json
+
+{
+  "salary": 1
+}
+
+### Xoá mềm → 204, không có body
+DELETE {{baseUrl}}/employees/{{empId}}
+Authorization: Basic {{user}}:{{password}}
+
+### Xoá lần hai → 404
+DELETE {{baseUrl}}/employees/{{empId}}
+Authorization: Basic {{user}}:{{password}}
+
+### Lấy nhân viên đã xoá → 404
+GET {{baseUrl}}/employees/{{empId}}
+Authorization: Basic {{user}}:{{password}}
